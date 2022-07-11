@@ -1,0 +1,589 @@
+---
+title: "Analysis of Kickstarter Projects"
+author: "Natascha Bencze & Rita Koranyi"
+date: "2/21/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE, error = TRUE)
+
+# install and/or load required libraries 
+
+#install.packages("plotly")
+#install.packages("hrbrthemes")
+#install.packages("tidyverse")
+# install.packages("ggpubr")
+library(cowplot)
+library(broom)
+library(ggplot2)
+library(dplyr)
+library(ggpubr)
+library(plotly)
+library(viridis)
+library(hrbrthemes)
+library(magrittr)
+library(tidyverse)
+library(plyr)
+```
+
+# 1. Introduction 
+
+Our client is a technology start-up from the United States and they are planning to launch a campaign at Kickstarter platfrom, for funding their newest computer game. They have ordered an analysis, to get an insight into the success chances of Kickstarter campaigns.  
+
+# 2. Exploratory Analysis 
+In this chapter, we will explore and transform the dataset to be able to perform the analysis for our exploratory questions on the data. 
+
+## 2.1 The Dataset  
+We used for our analysis a dataset from 2018 with 378,661 Kickstater campaings, with 15 variables. Now, let's take a look on it, in more details. 
+
+```{r, results='hide', echo = FALSE}
+# Importing the data, with headers and categorical variables converted into factors and checking its structure 
+ks.dat <- read.csv("ks-projects-201801.csv", header = TRUE, stringsAsFactors = TRUE) 
+str(ks.dat) # structure of the file 
+```
+*We have 15 variables in the dataset:* 
+
+* *ID:* the ID of the Kickstarter campaign
+* *name:* Name of the Kickstarter campaign 
+* *category:* detailed category of the campaign 
+* *main_category:* general category of the campaign
+* *currency:* currency of the funding 
+* *deadline:* deadline of the campaign 
+* *goal: target* amount in local currency of the country 
+* *launched:* date of launch of the campaign 
+* *pledged:* collected amount in local currency
+* *state:* status of the Kickstarter campaign (failed, successful, etc.)
+* *backers:* how many people donated money to the campaign 
+* *country:* country of the launched campaign
+* *usd.pledged:* unknown - it was excluded from the analysis 
+* *usd_pledged_real:* collected local currency converted into USD
+* *usd_goal_real:* target local currency converted into USD
+
+## 2.2 Defining our Exploratory Questions
+
+We defined the following questions for our exploratory analysis, which we will explore later in this chapter: 
+
+  1. Which are the top 10 projects, based on the colleacted amount of money? 
+  2. How much money was collected in total during in 2018 for campaigns?
+  3. For which main categories were the most money collected? 
+  4. Average of exceeded amount 
+  5. How much % exceeded the for the highest difference between required and achieved? 
+  6. Top-down country ranking based on the number of started projects
+  7. What is the distribution of the campaign status? 
+  8. Analysis of negative amounts 
+  9. Analysis of backers: proportional to pledged amount 
+  10. Most successful projects based on number of backers 
+  11. Donation per capita 
+
+## 2.3 Transforming and cleaning the data 
+```{r, results='hide', echo = FALSE, eval=FALSE}
+
+# displaying all levels within a dataframe, just to see what do have as levels in the dataset 
+ks.dat %>% 
+  sapply(levels)
+# due to save performance, we excluded to run this code, we ran it once as an exploratory step  
+```
+After exploring the data, we have seen that there is an unusual value among countries and undefied as the campaign status. 
+We decided to keep these values, and transform them into 'not available' values, since it still contain relevant data for our analysis. 
+We realized as well, that a few campaign status, which are undefined, could be categorized based on the data e.g. as successful, as the required money has been collected, however as we do not know any further details, we kept as it is and handled it as undefined.
+
+```{r, results='hide', echo = FALSE}
+# Performing data transformation and cleaning steps 
+
+ks.dat$deadline <- as.Date(ks.dat$deadline) # converting deadline data type into date 
+
+ks.dat$launched <- sub(" .*", "",  ks.dat$launched) # remove characters after space 
+
+ks.dat$launched <- as.Date(ks.dat$launched) # convert data type into date 
+```
+
+```{r, results='hide', echo = FALSE, message=FALSE}
+ks.dat$country <- str_replace(ks.dat$country, "N,0\"", NA_character_) # replacing N,0\" with NA 
+
+ks.dat$country <- as.factor(ks.dat$country) # converting column back to factor
+```
+
+
+```{r, results='hide', echo = FALSE, message=FALSE}
+anyNA(ks.dat$country) # checking if the transformation worked, the country column shall contain now NA values (value shall be TRUE).
+
+# [1] TRUE
+
+```
+
+
+```{r, results='hide', echo = FALSE, message=FALSE}
+ks.dat1 <- ks.dat[ks.dat$state %in% c("successful", "failed"),] #since we later need for one exploratory step only success and failed, we create a a separate dataset to filter out only two levels
+
+# Dropping columns that are not needed (i.e. will not be used in the analysis
+drops <- c("category", "usd.pledged", "usd_pledged_real", "usd_goal_real")
+ks.dat1[ , !(names(ks.dat1) %in% drops)]
+```
+
+
+```{r, results='hide', echo = FALSE, message=FALSE}
+# Adding “month” column
+ks.dat1$month <- substring(ks.dat1$launched, 6, 7)
+
+ks.dat1$month <- as.factor(ks.dat1$month)
+```
+
+
+```{r, results='hide', echo = FALSE, message=FALSE}
+# add duration column for the campaign duration 
+
+#create column "duration" with number of days, rounded to two decimal places
+
+ks.dat1$duration <- as.numeric(difftime(ks.dat1$deadline, ks.dat1$launched)) %>% round(digits = 2)
+
+head(ks.dat1)
+
+```
+### 2.3.1 Which are the top 10 projects, based on the collected amount of money?  
+```{r, echo = FALSE}
+
+top.10.projects <- head(arrange(ks.dat, desc(usd_pledged_real)), n = 10) 
+
+top.10.projects %>%  select(name, main_category, backers, usd_goal_real, usd_pledged_real) 
+
+```
+The most of the money was collected for Product design related projects.
+
+### 2.3.2 How much money was collected in total during 2018 for campaigns?
+```{r, echo= FALSE}
+sum2018 <-ks.dat %>% 
+ select(name, category, currency, launched, goal, deadline, pledged, usd_pledged_real, country) %>%
+ filter(launched >= as.Date("2018-01-01") & deadline <= as.Date("2018-12-31"))  
+
+sum(sum2018$usd_pledged_real)
+sum(ks.dat$usd_pledged_real)
+```
+The total amount of money regardless status of the campaign, in 2018 were 63'223 USD, for all campaings, 3'430'261'249 USD, which is a quite impressive amount.  
+
+### 2.3.3 For which main categories were the most money collected?
+
+```{r, echo= FALSE}
+agg.ks.dat <- aggregate(ks.dat$usd_pledged_real, by=list(Main_Category=ks.dat$main_category), FUN=sum) #summary of pledged amount in USD per category 
+head(agg.ks.dat[order(agg.ks.dat$x,decreasing=T), ])
+```
+Games, Design and Technology are the top 3 main categories for which the highest amount of money was collected. 
+
+### Month and duration of the campaign 
+```{r}
+
+ggplot(ks.dat1, aes(x = month, color = state)) + geom_histogram(stat = "count", fill = "white") 
+
+```
+December is the weakest month, as in: the lowest amount of projects entered in total and the lowest amount of successful projects. Other than that, the number of successful projects does not vary greatly - meaning the month when projects were launched do not seem to have a significant impact on how many projects reach their anticipated funding goal. But the success rate does seem to differ, July being the month with the highest total of projects launched but not showing the highest number of projects succeeded.
+
+Now let's see the success rate per month of the campaigns. 
+We would like to underline our assumption made by looking at the histogram with some numbers. First, we will create two new columns with “success” and “failed” values. 
+
+```{r, results='hide', echo = FALSE, message=FALSE}
+ks.dat1$success <- ks.dat1$pledged >= ks.dat1$goal
+ks.dat1$failed <- ks.dat1$pledged < ks.dat1$goal
+```
+Then we’ll create another column that contains the success rate, grouped by month and store these three new columns as a new dataset “success.rate”. 
+
+```{r, results='hide', echo = FALSE, message=FALSE}
+success.rate <-  ks.dat1 %>% select(success, failed, month) %>% 
+  select(success, failed, month) 
+
+success_rate <- aggregate(success ~ month, data = success.rate, FUN = mean)
+```
+Now let’s visualize again:
+
+```{r}
+ggplot(success_rate, aes(x = month, y = success)) +
+  geom_point(colour = "cyan4") 
+```
+This plot shows quite clearly that there are differences in success rates within the months, projects were launched. Our assumption from before, July being the “worst” month, is now definitely confirmed. January, August and December do not seem to be the best months to enter a project funding either.
+
+### 2.3.5 Analysis of the difference between funding goal and collected money
+```{r, results='hide', echo = FALSE, message=FALSE}
+ks.dat1$diff_goal_pledged <- ks.dat1$pledged - ks.dat1$goal
+```
+We created a new column called “diff_goal_pledged” that subtracts the goal from the amount of money collected to see the difference. Before starting the analysis we need to consider that not all projects collected their money in the same currency. Let’s have a look at the occurrences per currency.
+```{r}
+currency.groups <- ks.dat1 %>% 
+  group_by(currency) %>%
+  summarise(n = length(currency))
+
+head(arrange(currency.groups, desc(n)))
+```
+
+
+```{r, results='hide'}
+sum(currency.groups$n)
+## [1] 331675
+```
+Out of 379000 projects, 295000 are registered in USD. That is almost 80%. Since we’re interested in funding a US project, we will continue our analysis with only USD projects.
+Further Analysis for projects that collected USD
+We will prepare our data accordingly and run some codes to get an overview:
+```{r, results='hide'}
+## filter data by currency == USD
+
+ks.dat.USD <- ks.dat1 %>% 
+ select(everything()) %>%
+ filter(currency == "USD")
+
+## selecting all projects that were successful
+
+diff.positive.USD <-ks.dat.USD %>% 
+ select(everything()) %>%
+ filter(diff_goal_pledged >= 0)
+
+## selecting all the negative numbers (i.e. where less money was collected than anticipated)
+
+diff.negative.USD <-ks.dat.USD %>% 
+ select(everything()) %>%
+ filter(diff_goal_pledged < 0)
+
+nrow(diff.negative.USD)/ nrow(diff.positive.USD)
+
+## [1] 1.390827
+
+mean(diff.positive.USD$diff_goal_pledged)
+
+## [1] 13530.9
+
+mean(diff.negative.USD$diff_goal_pledged)
+
+## [1] -59329.13
+
+max(diff.positive.USD$diff_goal_pledged)
+
+## [1] 19838986
+
+## which is the project that exceeded their goal by almost 20 million?
+
+head(arrange(diff.positive.USD, desc(diff_goal_pledged)), 1)
+
+# 1 1799979574  Pebble Time - Awesome Smartwatch, No Compromises    Product Design
+
+```
+1.4 times more project do not achieve their goal compared to those, that exceeded their goal. On average, goals are missed by 60’000 USD, while goals are exceeded by 13’500 USD.
+
+### 2.3.6 Top-down country ranking based on the number of started projects
+```{r, echo= FALSE}
+barplot(prop.table(rev(sort(table(ks.dat$country))))[1:15], cex.names= 0.7, ylim=c(0,0.8))
+# barplot for country distribution (with basic R) 
+
+```
+US, GB, CA, AU and DE are the top 5 countries in which a Kickstarter campaign is getting started. The United states are with nearly 80%, dominating a huge percetage of the projects among the countries. 
+Knowing that the US is having an open culture to implement and finance innovative ideas, just to mention tech giants like, Amazon, Google or Microsoft, the US is still having validity: America is a land of opportunities.
+
+### 2.3.7 What is the distribution of the campaign status? 
+```{r, echo= FALSE}
+with(ks.dat, barplot(rev(sort(table(state))[1:6]), cex.names= 0.7, ylim=c(0,210000))) # distribution of project status 
+```
+Slightly suprising, but the most of the campaigns are failing to collect the targeted money. 
+Why could it be the case? 
+
+```{r, echo= FALSE}
+par(cex.axis=0.6)
+boxplot(usd_goal_real ~ state, data=ks.dat, ylim = c(0, 50000))
+#successul has a lot of high value outliers, and the lowest mean value if we do not consider the status "undefined".
+
+```
+
+It seems to be based on the boxplot visualisations, that the mean value of the goal was the smallest among the successful project (we do not consider undefined), however it seems  to have a lot of outliers.
+
+Do smaller target amount campaigns have better success chances?
+
+This seems to be reasonable, let's check if this maybe caused by the outliers. 
+
+```{r, results='hide', include=FALSE,  echo = FALSE}
+ks.dat.failed <- ks.dat[ks.dat$state == 'failed',] #197.614 campaigns failed. 
+var(ks.dat.failed$usd_goal_real) # 
+subset(ks.dat.failed, usd_goal_real> 500000) # 1648 campaings had over 500.000 target amount which have failed. 
+subset(ks.dat, usd_goal_real> 500000) # 2.243 overall campaigns had over 500.000 target amount.
+# hist(log(ks.dat.success$usd_pledged_real)) #data is normal distributed
+
+```
+
+```{r}
+par(cex.axis=0.6)
+boxplot(usd_goal_real ~ state, data=ks.dat, cex.names= 0.7, ylim = c(0, 150000000))
+```
+We can see from the boxplot, that a high amount of outliers for failed campaings are present in our data, which let us assume that a possible reason for failure is, that goal was already set too high. 
+From a total 2.243 campaigns which had a target goal over 500.000, 1648 campaings have failed. 
+It can be a further analysis topic, to take a look the socio-demographic and economical background, like income, GDP, etc. in a given country, but this aspect is not part of this analysis. 
+
+### 2.3.8 Successful USD Projects
+Looking at the biggest positive difference between goal and pledged, a US product design project managed to collect almost 20 million more than planned - exceeding their goal by nearly +400%. This number is much bigger than the average difference of 14’000 USD. We have to consider, that this value might influence the overall mean in such a way that the resulting number is not actually representative for the vast majority of projects.
+We can examine this assumption by plotting our data:
+```{r, echo = FALSE}
+plot(diff.positive.USD$diff_goal_pledged, xlab = "Projects", ylab = "Difference between goal and pledged", main = "Pleadged-Goal in USD (successful)", col = "pink")
+```
+Here we can see a big gap between the projects that have the biggest goal-pledged difference and most of the other projects.
+We can control this distortion by, for example, omitting all projects, that have more than 1 million difference between their goal and the money pledged.
+```{r, echo=FALSE}
+diff.1mio <- diff.positive.USD %>% 
+ select(everything()) %>%
+ filter(diff_goal_pledged < 1000000)
+
+```
+But is a cut at 1 million too radical? Let’s see how many project are “lost” by applying this filter:
+```{r, message=FALSE, results='hide'}
+1- count(diff.1mio)/count(diff.positive.USD)
+
+# 0.001938179   
+```
+Out of over 108’000 projects in total, we merely let go of 214, which is around 0.2%.
+Now let’s plot the new data:
+```{r, echo=FALSE}
+plot(diff.1mio$diff_goal_pledged, ylab = "Difference between pledged and goal (successful)", main = "Pledged-Goal less than 1M USD", col = "pink")
+```
+This distribution looks much better.
+```{r, message=FALSE, results='hide'}
+mean(diff.1mio$diff_goal_pledged)
+## [1] 9058.844
+mean(diff.positive.USD$diff_goal_pledged)
+## [1] 13530.9
+```
+Looking at the average difference, we have 9’059 USD now, compared to 13’530 USD at the beginning.
+
+### 2.3.9 Failed USD Projects
+Now let’s have a look at the projects that failed to reach their goal:
+```{r, echo=FALSE, }
+plot(diff.negative.USD$diff_goal_pledged, xlab = "Projects", ylab = "Difference between goal and pledged (failed)", main = "Pledged-Goal in USD", col = "#FFCC00")
+```
+We can see that some outliers are distorting the distribution so we’ll decide on a cut-off at - 1mio and have a look at the new data:
+
+```{r, echo=FALSE}
+diff.minus.1mio <- diff.negative.USD %>% 
+ select(everything()) %>%
+ filter(diff_goal_pledged > -1000000)
+
+plot(diff.minus.1mio$diff_goal_pledged, xlab = "Projects", ylab = "Difference between goal and pledged", main = "Pledged-Goal less than 1M USD (failed)", col = "#FFCC00")
+
+```
+How many percent of the projects were cut-off this time?
+```{r, message=FALSE, results='hide'}
+1- count(diff.minus.1mio)/count(diff.negative.USD)
+
+# 0.004068888
+```
+0.4%. And the distribution looks much better. Let’s see if the mean value changed after removing the outliers:
+```{r, message=FALSE, results='hide'}
+mean(diff.minus.1mio$diff_goal_pledged)
+## [1] -23234.29
+mean(diff.negative.USD$diff_goal_pledged)
+## [1] -59329.13
+```
+The 0.4% projects that had a goal-pledged difference bigger than - 1 million were responsible for a difference in mean of more than 36’000 USD. Therefore it would rather reflect the vast majority of projects if we take the new value, which suggests that the average difference of goal and money pledged of the failed projects is around 23’000 USD.
+
+### 2.3.10 Successful vs. Failed USD Projects
+
+Of course we are interested in knowing why projects were able to collect more money than anticipated and on the other hand why some projects failed so clearly to fund their project. Let’s base our further analysis on the data that were cut off at a 1 mio difference to tune out the impact of extreme values.
+Let’s have a look at the average of goal that was set for successful projects and compare them to the average of the failed projects:
+```{r, message=FALSE, results='hide'}
+mean(diff.1mio$goal)
+mean(diff.minus.1mio$goal)
+
+#[1] 9370.233
+#[1] 24549.38
+
+count(diff.minus.1mio)/count(diff.1mio)
+
+# 1.387857  
+```
+We can see quite clearly that projects that failed, asked for a higher fund (~25’000) than those that were successful (~9500). Or to put it differently: projects with lower goals are more likely to succeed than projects with higher goals. That’s not utterly surprising.
+
+### 2.3.11 Most successful projects based on number of backers
+
+Valid question, even if the amount was set too high, with enough supporters of the campaign, it could be still reached. Let's take a look on the number of backers. 
+
+```{r}
+backers.sorted <-ks.dat[order(-ks.dat$backers), ] #sort data based on number of donators
+backers.sorted %>%
+  select(name, main_category, state, backers, usd_pledged_real) %>% head()
+
+```
+As we can see, Exploding Kittens inspired a lot of people to support the project: 
+219.382 people gave their money to make the project happen. 
+
+After getting an insight why a campaing might fail, let's move on how can we be successful with our campaign. We assume that more donators will result more money.   
+
+```{r}
+ks.dat.success <- ks.dat[ks.dat$state == 'successful',]
+ggscatter(ks.dat.success, x = "backers", y = "usd_pledged_real",
+          add = "reg.line", conf.int = TRUE,
+          cor.coef = TRUE, cor.method = "pearson",
+          xlab = "Number of donators", ylab = "Amount of collected money")
+```
+Based on the graph, it seems that there is a linear relationship between collected money and number of donators. 
+
+### 2.3.11 Donation per capita 
+
+Now that we know that there is a linear relationship between backers and collected amount, let's see how much is the required and targeted amount per capita. 
+```{r, echo = FALSE}
+
+ks.dat$collected.per.capita <-ifelse(ks.dat$backers==0, NA, ks.dat$usd_pledged_real/ks.dat$backers) # collected money per capita
+
+qplot(ks.dat$collected.per.capita,
+      geom="histogram",
+      binwidth = 20,  
+      main = "Histogram collected money per person", 
+      xlab = "Collected amount per capita",  
+      fill=I("cadetblue4"), 
+      col=I("darkolivegreen"), 
+      alpha=I(.2),
+      xlim=c(0,500))
+
+```
+The histogram shows that most people are willing to donate smaller amount of money, between 0-50 USD.  
+```{r, echo=FALSE}
+
+average.per.country <- aggregate(collected.per.capita ~ country, data = ks.dat, mean)
+
+total.backers <- aggregate(backers ~ country, data = ks.dat,  sum)
+average.merged <- merge(x = average.per.country, y = total.backers, by = "country", all = TRUE)
+average.merged <- arrange(average.merged, desc(backers))
+# create dataset 
+
+```
+We calculated the total collected amount per country converted into USD, regardless status and divided with the total amount of backers. 
+
+```{r}
+ggplot(average.merged, aes(x=country, y = collected.per.capita, size = backers, color = country))+ xlab("Country of the campaign") +
+  ylab("Average amount collected per person in USD") +
+  ggtitle("Average funding per person per country and total number of backers") +
+    geom_point(alpha=0.7) +
+    scale_size(range = c(1.4, 20)) +
+    scale_color_viridis(discrete=TRUE, guide=FALSE) +
+     theme(legend.position="none") + theme(text = element_text(size=9, family= "sans"))
+
+```
+The bubble size represents the total number of backers in the given country. We can see from the graph that Switzerland, Hong Kong and Austria are showing the highest amount per person, nevertheless a highest number of people are willing to fund from the US.
+
+Note: the bubble for the US is per default cut off. 
+
+```{r, echo=FALSE}
+average.merged
+average.per.category <- aggregate(collected.per.capita ~ main_category, data = ks.dat,  mean)
+
+total.backers.category <- aggregate(backers ~ main_category, data = ks.dat,  sum) 
+average.merged2 <- merge(x = average.per.category, y = total.backers.category, by = c("main_category"), all = TRUE)
+average.merged2 <- arrange(average.merged2, desc(collected.per.capita))
+#create dataset 
+```
+Surprisingly the highest average amount per person for funding  has Switzerland, not the US. Let's plot this table on a graph. 
+
+We would like to take a look as well on the main categories, what is the average amount of collected money? 
+
+```{r, echo=FALSE}
+ggplot(average.merged2, aes(x= main_category, y = collected.per.capita, size = backers, color = main_category)) + xlab("Main category of the campaign") +
+  ylab("Average amount collected per person in USD") +
+  ggtitle("Average funding per person per category and total number of backers") + 
+    ggrepel::geom_text_repel(data = average.merged2, aes(label = main_category)) + 
+    geom_point(alpha=0.4) +
+    scale_size(range = c(2, 11)) +
+    scale_color_viridis(discrete=TRUE, guide=FALSE, option="B") +
+     theme(legend.position="none") + theme(text = element_text(size=9, family= "sans"), axis.text.x=element_blank())
+  
+```
+The bubble size represents the total number of backers in the given main category. We can see that the most of the people are giving for Design, Games and Technology and the highest amounts they are willing to support for Technology campaigns.
+
+```{r, echo=FALSE}
+average.merged2 # printout of the dataframe to see the exact numbers
+```
+# 3. Modelling
+
+Which amount shall we target that we are successfully able collect with our campaign? 
+We fit a linear model with target amount of money, backers, main category. 
+```{r, echo=FALSE}
+# fitting a linear model 
+lm.model <-lm(usd_pledged_real ~ usd_goal_real + backers + main_category, data=ks.dat)
+summary(lm.model)
+
+par(mfrow = c(2, 2)) # checking residuals
+plot(lm.model) #plotting residuals
+
+lm.model %>% augment() %>% 
+  ggplot()  + 
+  geom_point(aes(.fitted, ks.dat$usd_pledged_real)) + 
+  geom_smooth(aes(.fitted, ks.dat$usd_pledged_real), method = "lm", se = FALSE, color = "lightgrey") + 
+labs(x = "Actual", y = "Fitted") + 
+  theme_bw()
+```
+The adjusted R squared value, is about 56,7% which is a satisfactory but not good result, meaning 56,7% of our model is explained by the data. This assumption is supported by the residuals and Q-Q plots.  
+Based on our linear model the target amount does not have any influence of the collected amount, technology category and the number of backers have. 
+
+## 3.1 Logistic Regression 
+We can fit a logistic regression to double-check the assumption that the set goal for funding does influence the chances of succeeding/ failing.
+To do so, we’ll create a new data frame that contains only USD projects, a cut-off at 1 million for the difference between goal and pledged and we’ll add a column where all successful projects are shown in binary values:
+```{r, echo=FALSE, message=FALSE}
+diff.cut <-ks.dat1 %>% 
+  select(pledged, goal, diff_goal_pledged, state, main_category, month, duration, currency) %>%
+  filter(currency == "USD") %>%
+  filter(diff_goal_pledged < 1000000 & diff_goal_pledged > -1000000) %>%
+  mutate(success_bin = ifelse(state == "successful" ,1, 0))
+
+```
+Before we fit a model, let’s have a look at the relationship between goal and success by plotting it:
+
+```{r}
+ggplot(data = diff.cut,
+       mapping = aes(y = success_bin,
+                     x = goal, color = success_bin)) + geom_point()
+
+```
+We’ve already found out that the mean value of funding goal for projects that failed was much higher than the mean value of projects that succeeded. Here we can see clearly that most of the projects that were successful had a goal between 0 - 500’000 and some (but much less) between 500’000 - 1’000’000. Projects that failed, however, are quite evenly distributed between 0 - 1’000’000.
+Now let’s fit a logistic regression to the data:
+
+```{r}
+glm.goal <- glm(success_bin ~ goal, family = "binomial", data = diff.cut)
+```
+Looking at the summary, we can see that there is strong evidence that the funding goal has an impact on the chances of succeeding. This result correlates with our observations made before. Interpreting the negative intercept of the goal variable, we can assume that: the higher the goal, the lower the chances of succeeding.
+We already know that category also affects the success rate. Let’s see if any other variable has an significant impact. It might be interesting to know if the duration of funding is important:
+```{r}
+glm.duration <- glm(success_bin ~ duration, family = "binomial", data = diff.cut)
+```
+Duration (= number of days between launched and deadline) also seems influence the success of funding a project negatively. Let’s compare fitted and observed values to check if our model is a good fit.
+Since our fitted values are continues numbers, we first need to discretise them by ascribing the value 0 for all values smaller than 0.5 and 1 for all values bigger than 0.5:
+```{r}
+# discretise fitted values into 0 and 1
+
+fitted.disc <- ifelse(fitted(glm.duration) < 0.5, yes = 0, no = 1)
+
+# compare observed and fitted values
+
+obs.fit.duration <- data.frame(obs = diff.cut$success_bin,
+                           fitted = fitted.disc)
+
+table(obs = obs.fit.duration$obs,
+      fit = obs.fit.duration$fit)
+
+```
+Looking at the matrix, our model does explain some of the response variable’s variation but clearly not enough. Let’s see if adding goal and category will make a difference:
+```{r}
+glm.dur.plus <- glm(success_bin ~ duration + goal + main_category, family = "binomial", data = diff.cut)
+```
+This model already does - albeit not great - perform a little bit better than the last model (although we now have somewhat more false positives).
+
+Now as a final question, after giving the client an intermediate update, they wanted to know if they need 150'000 USD, are there 2'000 supporters enough to be the campaign successful? 
+```{r}
+pl <- predict(lm.model, newdata= data.frame(usd_goal_real=150000, backers=c(0:50), main_category= "Technology")) # we would like to have a target of 150000 and expect 10000 backers.
+plot(pl)
+```
+```{r}
+currency.calculator <- function(currency,conversion) {
+  target.currency <- currency * conversion
+  return(target.currency)
+}
+
+conversion.check <- function(currency1,currency2) {
+  conversion1 <- currency1 / currency2
+  return(conversion1)
+  }
+
+currency.calculator(100, 1.08)
+conversion.check(100, 140)
+
+```
+
