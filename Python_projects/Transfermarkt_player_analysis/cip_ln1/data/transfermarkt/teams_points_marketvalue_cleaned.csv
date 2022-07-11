@@ -1,0 +1,99 @@
+Team_id,team,marktvalue,points,league
+1,Manchester City,1270000000,81,Premier League
+2,Liverpool FC,1080000000,99,Premier League
+3,Tottenham Hotspur,1040000000,59,Premier League
+4,Chelsea FC,797000000,66,Premier League
+5,Manchester United,775200000,66,Premier League
+6,Arsenal FC,680550000,56,Premier League
+7,Everton FC,525500000,49,Premier League
+8,Leicester City,384250000,62,Premier League
+9,West Ham United,371750000,39,Premier League
+10,Wolverhampton Wanderers,315400000,59,Premier League
+11,Newcastle United,312580000,44,Premier League
+12,AFC Bournemouth,311200000,34,Premier League
+13,Watford FC,270650000,34,Premier League
+14,Southampton FC,259800000,52,Premier League
+15,Crystal Palace,248650000,43,Premier League
+16,Brighton & Hove Albion,225830000,41,Premier League
+17,Burnley FC,205580000,54,Premier League
+18,Aston Villa,184600000,35,Premier League
+19,Norwich City,110850000,21,Premier League
+20,Sheffield United,110800000,54,Premier League
+21,Juventus FC,870080000,83,Serie A
+22,SSC Napoli,723800000,62,Serie A
+23,Inter Milan,661900000,82,Serie A
+24,AC Milan,563050000,66,Serie A
+25,AS Roma,438450000,70,Serie A
+26,ACF Fiorentina,331850000,49,Serie A
+27,SS Lazio,287200000,78,Serie A
+28,Atalanta BC,284250000,78,Serie A
+29,Torino FC,231280000,40,Serie A
+30,Cagliari Calcio,188330000,45,Serie A
+31,Genoa CFC,185100000,39,Serie A
+32,UC Sampdoria,181480000,42,Serie A
+33,US Sassuolo,180200000,51,Serie A
+34,Udinese Calcio,161350000,45,Serie A
+35,Parma Calcio 1913,122780000,49,Serie A
+36,Bologna FC 1909,113980000,47,Serie A
+37,SPAL,97700000,20,Serie A
+38,Brescia Calcio,94180000,25,Serie A
+39,US Lecce,70330000,35,Serie A
+40,Hellas Verona,59330000,49,Serie A
+41,Real Madrid,1200000000,87,LaLiga
+42,FC Barcelona,1190000000,82,LaLiga
+43,Atlético Madrid,844150000,70,LaLiga
+44,Valencia CF,493350000,53,LaLiga
+45,Real Betis Balompié,337150000,41,LaLiga
+46,Sevilla FC,328400000,70,LaLiga
+47,Real Sociedad,297650000,56,LaLiga
+48,Celta de Vigo,248200000,37,LaLiga
+49,Villarreal CF,247350000,60,LaLiga
+50,Athletic Bilbao,222950000,51,LaLiga
+51,RCD Espanyol Barcelona,208650000,25,LaLiga
+52,Getafe CF,168700000,54,LaLiga
+53,Deportivo Alavés,132000000,39,LaLiga
+54,CD Leganés,131700000,36,LaLiga
+55,Levante UD,106200000,49,LaLiga
+56,Real Valladolid CF,103700000,42,LaLiga
+57,SD Eibar,75300000,42,LaLiga
+58,RCD Mallorca,62750000,33,LaLiga
+59,CA Osasuna,53700000,52,LaLiga
+60,Granada CF,49650000,56,LaLiga
+61,Bayern Munich,911730000,82,Bundesliga
+62,Borussia Dortmund,691030000,69,Bundesliga
+63,RB Leipzig,561900000,66,Bundesliga
+64,Bayer 04 Leverkusen,440950000,63,Bundesliga
+65,TSG 1899 Hoffenheim,292030000,52,Bundesliga
+66,Hertha BSC,285100000,41,Bundesliga
+67,Borussia Mönchengladbach,260950000,65,Bundesliga
+68,Eintracht Frankfurt,247100000,45,Bundesliga
+69,VfL Wolfsburg,236350000,49,Bundesliga
+70,FC Schalke 04,213730000,39,Bundesliga
+71,SV Werder Bremen,201930000,31,Bundesliga
+72,1.FSV Mainz 05,152530000,37,Bundesliga
+73,FC Augsburg,133450000,36,Bundesliga
+74,SC Freiburg,121050000,48,Bundesliga
+75,1. FC Köln,116950000,36,Bundesliga
+76,Fortuna Düsseldorf,96230000,30,Bundesliga
+77,1.FC Union Berlin,40250000,41,Bundesliga
+78,SC Paderborn 07,26180000,20,Bundesliga
+79,Paris Saint-Germain,1090000000,68,Ligue 1
+80,AS Monaco,409250000,40,Ligue 1
+81,Olympique Lyon,369500000,40,Ligue 1
+82,Olympique Marseille,243700000,56,Ligue 1
+83,LOSC Lille,185000000,49,Ligue 1
+84,OGC Nice,181850000,41,Ligue 1
+85,Stade Rennais FC,159550000,50,Ligue 1
+86,FC Girondins Bordeaux,144000000,37,Ligue 1
+87,AS Saint-Étienne,118400000,30,Ligue 1
+88,FC Nantes,105450000,37,Ligue 1
+89,RC Strasbourg Alsace,101050000,38,Ligue 1
+90,Montpellier HSC,92000000,40,Ligue 1
+91,FC Toulouse,84400000,13,Ligue 1
+92,SCO Angers,77700000,39,Ligue 1
+93,Amiens SC,74800000,23,Ligue 1
+94,Stade Reims,70100000,41,Ligue 1
+95,Nîmes Olympique,58200000,27,Ligue 1
+96,Dijon FCO,48050000,30,Ligue 1
+97,FC Metz,47950000,34,Ligue 1
+98,Stade Brest 29,36750000,34,Ligue 1
