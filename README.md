@@ -20,3 +20,9 @@ This repo aims to provide an overview about my data science project during my st
 
 *Data visualization with Tableau:*
 - Data visualization of New York vehicles accident with Tableau to identify accident hotspots on the NYC map
+
+My master thesis is having a confidential closure, therefore I am not allowed to share the code or the thesis itsself. However, together with my supervisors, we have publised a paper based on my master thesis. You can access the paper here: https://doi.org/10.3390/knowledge2020017
+
+Furthermore my scientific poster, based on my thesis, was selected for the Applied Machine Learning Days conference (March 2022, Lausanne, CH). The latest version of my poster you can view here: [Poster_v3_portrait.pdf](https://github.com/rk-304/projects/files/9084202/Poster_v3_portrait.pdf)
+
+Last but not least I am happy to receive any feedbacks or share more information about the projects in person, if you are interested. 
