@@ -1,0 +1,1218 @@
+---
+title: "Groupwork ML"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE ,
+                      message=FALSE)
+
+```
+
+## Install Packages & use library
+
+```{r eval=FALSE}
+install.packages("tidyverse")
+install.packages("dplyr")
+install.packages("reshape2")
+install.packages("e1071")
+install.packages("caret")
+install.packages("stringr")
+install.packages("ggplot2")
+install.packages('NetLogoR')
+install.packages('minpack.lm')
+install.packages('abc')
+install.packages('ggrepel')
+
+```
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(reshape2)
+library(e1071) 
+library(caret)
+library(stringr)
+library(nnet)
+library(gamlss.add)
+library(ggplot2)
+library(ROCR)
+library(abc)
+library(ggrepel)
+library(NetLogoR)
+library(minpack.lm)
+
+```
+
+
+## Get & Clean the Data
+```{r,  results = "hide" , fig.show='hide' }
+
+## ----getData----------------------------------------------------
+#movies.uncleaned <- read.csv("../Data/imdb_movie_metadata.csv", header = TRUE)
+movies.uncleaned <- read.csv("imdb_movie_metadata.csv", header = TRUE)
+names(movies.uncleaned)
+head(movies.uncleaned)
+
+## ----clean data, remove outliers-----------------------
+
+movies.uncleaned$gross_m <- movies.uncleaned$gross / 1000000
+movies.uncleaned$budget_m <- movies.uncleaned$budget / 1000000
+
+
+
+## calculate new field to IMDB about profit and loss, convert into a factor
+movies.uncleaned <- movies.uncleaned %>%
+  mutate(profit_loss = ifelse((movies.uncleaned$budget - movies.uncleaned$gross) > 0, 'Loss', 'Profit'))
+movies.uncleaned[, 'profit_loss'] <- as.factor(movies.uncleaned[, 'profit_loss'])
+# remove duplicates
+movies.uncleaned <- movies.uncleaned[!duplicated(movies.uncleaned), ]
+# remove all columns with NA values
+movies.uncleaned <- movies.uncleaned %>%
+  drop_na()
+# correct the movie title
+movies.uncleaned$movie_title <- gsub("Â", "", as.character(factor(movies.uncleaned$movie_title)))
+str_trim(movies.uncleaned$movie_title, side = "right")
+
+
+## ----Remove NA----------------------------------------------------
+# remove na from the column budget_m and gross_m
+count(movies.uncleaned)
+movies.uncleaned <- movies.uncleaned[!is.na(movies.uncleaned$budget_m), ] 
+count(movies.uncleaned)
+movies.uncleaned <- movies.uncleaned[!is.na(movies.uncleaned$gross_m), ] 
+count(movies.uncleaned)
+
+## ----Analyze top 10 budget movies----------------------------------------------------
+# Checks show that there are incorrect data among the top movies
+# Movie: The Legend of Suriyothai real budget 350 million thb to usd = 11 Mio USD and not 400 Mio USD
+# Examination of the films in this dataset has revealed that Pirates of the Caribbean is the film with 
+# the highest budget (in this dataset). All other films with a budget > $300 million are incorrect.
+
+movies.uncleaned[rev(order(movies.uncleaned$budget_m)) ,  ] %>% head(20)
+#boxplot(movies.uncleaned$gross_m , movies.uncleaned$budget_m)
+# set max budget
+outlier_budget_m <- 301
+movies.uncleaned <- movies.uncleaned[movies.uncleaned$budget_m < outlier_budget_m, ]
+#boxplot(movies$budget_m)
+
+# Analyze top 10 movies by gross revenue movies 
+movies.uncleaned[rev(order(movies.uncleaned$gross_m)) ,  ] %>% head(20) 
+# after checking some of the top 10 movierevenues, this data looks legit
+#boxplot(movies$gross_m)
+
+movies <- movies.uncleaned
+count(movies)
+
+
+```
+
+
+```{r , results = "hide" , fig.show='hide'}
+## ---- split genres into single genre-----------------------
+
+movies$genre_copy <- movies$genres
+genre_list <- c()
+
+
+## Create list with all genres
+for(i in 1:nrow(movies) ) { #nrow(movies)
+  tmp_genre <- movies$genres[i]
+  tmp_genre_v <- str_split(tmp_genre, "\\|", n = Inf, simplify = TRUE)
+  for(j in 1:length(tmp_genre_v)){
+    if(tmp_genre_v[j] %in% genre_list) {
+      ## genre already in the list
+    } else {
+      ## add to the list
+      genre_list <- c(genre_list, tmp_genre_v[j])
+    }
+  }
+}
+
+## Print Genre List
+genre_list
+genre_list_f <- paste("Genre_",genre_list,sep="" )
+genre_list_f
+## Add Genres as a column to the movies list
+for(i in 0:length(genre_list) ) { 
+  movies[, paste("Genre_",genre_list[i], sep="")] <- 0
+}
+
+
+## Fill out Genre Columns with 1 if genre == true
+for(i in 1:nrow(movies) ) {
+  tmp_genre <- movies$genres[i]
+  tmp_genre_v <- str_split(tmp_genre, "\\|", n = Inf, simplify = TRUE)
+  for(j in 1:length(tmp_genre_v)){
+    #print(paste("i=", i, " j=" , j, " - " , tmp_genre_v[j]))
+    movies[ i, paste("Genre_",tmp_genre_v[j], sep="")] <- 1
+  }
+}
+
+# Number of Movies per Genre
+colnames(movies)
+colSums(movies[,34:55])
+
+
+# Convert Numeric Column to a Factor
+str(movies)
+names <- c(genre_list_f)
+movies[,names] <- lapply(movies[,names] , factor)
+str(movies)
+
+```
+
+## Linear Models
+
+Our goal is to understand how we can predict the gross revenue of a movie production. If we understand the important facotrs, we will be able to produce a movie that is an economic success for us. 
+
+Before fitting a Linear Model we used exploratory and visual data analysis to understand the different factors which could influence gross revenue (gross_m).
+
+
+An important factor by far is the budget (budget_m). We can see here the Linear relationship between revenue and budget of a movie:
+
+```{r,   warning = FALSE, }
+# ---- test basic model -----------------------
+movies.lm.basic <- lm(gross_m ~ budget_m , data = movies)
+summary(movies.lm.basic)
+
+plot(gross_m ~ budget_m, data = movies,
+     main = "Gross Revenue against Budget",
+     pch = 1,
+     col = "darkgray"
+)
+
+
+abline(movies.lm.basic, col = "red", lty = "dashed")
+
+```
+
+
+In order to fit an advanced Linear Model, we used two different approaches and compared these two approaches. First we created a 
+* "Grouped Factor Approach" and then an 
+* "All Factors Approach" Model.
+
+In the __Grouped Factor Approach__ we tried to group similar factors in a LM and test these factors for significance. After doing this for multiple groups, we create a combined model which includeded only the significant factors of the different groups.
+
+In the __All Factors Approach__ we simply added all factors to a Linear Model and then removed the non significant factors. 
+
+
+
+```{r,  results = "hide" , message=FALSE, warning = FALSE, fig.show='hide'}
+
+
+#####################################################################################
+## Grouped Factor Approach:
+## We try to group similar factors in a LM and test these factors for significance.
+## After doing this for multiple groups we create a combined model which includes
+## only the significant factors of the different groups.
+##
+## All Factors Approach
+## We also try an all factors approch where we fit a LM with all Factors
+##
+## Comparison
+## After that we compare the two different approaches.
+#####################################################################################
+## ---- test genres as explanatory variables  -----------------------
+
+# Add Genres as  explanatory variables 
+movies.lm.genres <- lm(gross_m ~ budget_m 
+                           + Genre_Action + Genre_Adventure
+                           + Genre_Fantasy  + `Genre_Sci-Fi`
+                           + Genre_Thriller + Genre_Romance + Genre_Animation
+                           + Genre_Comedy + Genre_Family + Genre_Musical 
+                           + Genre_Mystery + Genre_Western + Genre_Drama
+                           + Genre_History + Genre_Sport + Genre_Crime
+                           + Genre_Horror + Genre_War + Genre_Biography 
+                           + Genre_Music + Genre_Documentary 
+                           , data = movies)
+summary(movies.lm.genres)
+# Result:
+# There is some evidence, that the following genres are at least weakly significant: 
+# Genre_Action + Genre_Adventure + Genre_Thriller + Genre_Drama + Genre_History 
+
+
+# Genre Model with significant Genres
+movies.lm.genres <- lm(gross_m ~ budget_m 
+                       + Genre_Action + Genre_Adventure + Genre_Thriller + Genre_Drama + Genre_History 
+                       , data = movies)
+summary(movies.lm.genres)
+
+
+boxplot(gross_m ~ Genre_Action, data = movies)
+boxplot(gross_m ~ Genre_Adventure, data = movies)
+boxplot(gross_m ~ Genre_Thriller, data = movies)
+boxplot(gross_m ~ Genre_Drama, data = movies)
+boxplot(gross_m ~ Genre_Action, data = movies)
+boxplot(gross_m ~ Genre_Action, data = movies)
+
+
+#####################################################################################
+## ---- test Facebooke Likes as explanatory variables  -----------------------
+
+
+
+# Plot actor_1_facebook_likes
+ggplot(data = movies,
+       mapping = aes(y = gross_m,
+                     x = actor_1_facebook_likes)) +
+  geom_point() + 
+  xlim(0, 50000) + 
+  ylim(0, 500) +
+  geom_smooth()
+  
+
+# Plot actor_1_facebook_likes
+ggplot(data = movies,
+       mapping = aes(y = gross_m,
+                     x = actor_1_facebook_likes)) +
+  geom_point() + 
+  xlim(0, 50000) + 
+  ylim(0, 500) +
+  geom_smooth(method = "lm") 
+
+#Comment: After graphical evaluation, for actor_1_facebook_likes it is difficult 
+# spot a clear linear relationship.
+
+
+# Plot actor_2_facebook_likes
+ggplot(data = movies,
+       mapping = aes(y = gross_m,
+                     x = actor_2_facebook_likes)) +
+  geom_point() + 
+  xlim(0, 50000) + 
+  ylim(0, 500) +
+  geom_smooth() 
+
+#Comment: After graphical evaluation, for actor_2_facebook_likes it seems that there is a linear relationship.
+
+
+# Plot actor_3_facebook_likes
+ggplot(data = movies,
+       mapping = aes(y = gross_m,
+                     x = actor_3_facebook_likes)) +
+  geom_point() + 
+  xlim(0, 50000) + 
+  ylim(0, 500) +
+  geom_smooth() 
+
+#Comment: After graphical evaluation,  for actor_3_facebook_likes it seems that there is a linear relationship.
+
+
+# Plot director_facebook_likes
+ggplot(data = movies,
+       mapping = aes(y = gross_m,
+                     x = director_facebook_likes)) +
+  geom_point() + 
+  xlim(0, 1000) + 
+  ylim(0, 500) +
+  geom_smooth() 
+
+
+ggplot(data = movies,
+       mapping = aes(y = gross_m,
+                     x = director_facebook_likes)) +
+  geom_point() + 
+  xlim(0, 5000) + 
+  ylim(0, 500) +
+  geom_smooth() 
+
+#Comment: After graphical evaluation for director_facebook_likes, it seems that there is no real linear relationship.
+
+
+# Plot Cast FB Likes
+ggplot(data = movies,
+       mapping = aes(y = gross_m,
+                     x = cast_total_facebook_likes)) +
+  geom_point() + 
+  xlim(0, 15000) + 
+  ylim(0, 500) +
+  geom_smooth() 
+
+#Comment: After graphical evaluation, cast_total_facebook_likes, it seems that there is no real linear relationship.
+
+
+# Plot Movie FB Likes
+ggplot(data = movies,
+       mapping = aes(y = gross_m,
+                     x = movie_facebook_likes)) +
+  geom_point() + ## adds observations
+  xlim(0, 200000) + 
+  ylim(0, 500) +
+  geom_smooth( ) # method = "lm"
+
+#Comment: After graphical evaluation, for movie_facebook_likes, it seems that there is is a linear relationship.
+
+movies.lm.fblikes <- lm(gross_m ~ budget_m 
+                        + actor_1_facebook_likes + actor_2_facebook_likes + actor_3_facebook_likes + movie_facebook_likes
+                        + director_facebook_likes + cast_total_facebook_likes
+                        ,data = movies)
+summary(movies.lm.fblikes)
+
+
+
+# Result:
+# After fitting a Linear Model, there is strong evidence for all Facebook like Factors that they are a significant
+# factor in the linear model.
+
+
+#####################################################################################
+## ---- Test Critics and Reviews as a Factors -----------------------
+
+movies.lm.critics <- lm(gross_m ~ budget_m 
+                     + num_critic_for_reviews +  num_voted_users  + num_user_for_reviews
+                     + facenumber_in_poster
+                     , data = movies)
+summary(movies.lm.critics)    
+
+
+#abline(movies.lm.1 , col = "red", lty = "dashed")
+
+
+#####################################################################################
+## ---- Test Language and Country as a Factors -----------------------
+
+movies.lm.critics <- lm(gross_m ~ budget_m 
+                        + language 
+                        , data = movies)
+summary(movies.lm.critics)    
+
+# Only Language Thai is a significant factor -> we will not use language in the final model
+
+movies.lm.critics <- lm(gross_m ~ budget_m 
+                         + country
+                        , data = movies)
+summary(movies.lm.critics)    
+
+# Only countryThailand is a significant factor -> we will not use country in the final model
+
+
+
+
+#####################################################################################
+## ---- Scores Factors test -----------------------
+
+movies.lm.scores <- lm(gross_m ~ budget_m 
+                               + imdb_score  
+                               , data = movies)
+summary(movies.lm.scores)  
+
+
+#####################################################################################
+## ---- Other Factors test -----------------------
+
+movies.lm.other <- lm(gross_m ~ budget_m 
+                      + color + duration + title_year 
+                      , data = movies)
+summary(movies.lm.other)  
+
+
+## ----  Effect of conttent rating on gross revenue-----------------------
+
+movies.lm.other <- lm(gross_m ~ budget_m 
+                       + content_rating
+                      , data = movies)
+summary(movies.lm.other)  
+
+library(ggplot2)
+
+ggplot(data = movies,
+       mapping = aes(y = gross_m,
+                     x = budget_m)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  facet_grid(. ~ content_rating)
+
+
+boxplot(movies$gross_m ~ movies$content_rating)
+
+```
+
+
+### Grouped Factor Approach
+
+```{r echo = TRUE}
+## ---- Combination of Significant Factors -----------------------
+movies.lm.comb <- lm(gross_m ~ budget_m 
+                     + actor_1_facebook_likes + actor_2_facebook_likes 
+                     + actor_3_facebook_likes + movie_facebook_likes
+                     + director_facebook_likes + cast_total_facebook_likes
+                     + Genre_Action + Genre_Adventure + Genre_Thriller + Genre_Drama + Genre_History
+                     + num_user_for_reviews
+                     + duration
+                     + imdb_score + movie_facebook_likes 
+                     , data = movies)
+summary(movies.lm.comb)$adj.r.squared
+
+
+```
+
+
+### All Factor Approach
+
+
+```{r , results = "hide" , message=FALSE, warning = FALSE, fig.show='hide'}
+
+#################################################################################
+##  Compare an an all factor model vs the "grouped factor" approach from above.  
+##
+
+movies.lm.all <- lm(gross_m ~ budget_m 
+                    + Genre_Action + Genre_Adventure
+                    + Genre_Fantasy  + `Genre_Sci-Fi`
+                    + Genre_Thriller + Genre_Romance + Genre_Animation
+                    + Genre_Comedy + Genre_Family + Genre_Musical 
+                    + Genre_Mystery + Genre_Western + Genre_Drama
+                    + Genre_History + Genre_Sport + Genre_Crime
+                    + Genre_Horror + Genre_War + Genre_Biography 
+                    + Genre_Music + Genre_Documentary 
+                    + actor_1_facebook_likes + actor_2_facebook_likes 
+                    + actor_3_facebook_likes + movie_facebook_likes
+                    + director_facebook_likes + cast_total_facebook_likes
+                    + num_critic_for_reviews +  num_voted_users  + num_user_for_reviews
+                    + facenumber_in_poster
+                    + language 
+                    + country
+                    + imdb_score  
+                    + color + duration + title_year
+                    + content_rating
+                     , data = movies)
+summary(movies.lm.all)
+
+
+# Comment: Remove explanatory variables which are not significant from the model above
+# Also remove Cotent Rating since it only has a very small effect on the model.
+
+
+```
+
+After Fitting a Linear model using all Factors, we removed the non-significant perdictors and ended up with this model:
+
+
+```{r echo = TRUE}
+movies.lm.all_sig <- lm(gross_m ~ budget_m 
+                    + `Genre_Sci-Fi` + Genre_Animation + Genre_Comedy + Genre_Family  
+                    + Genre_Drama  + Genre_History  + Genre_Crime
+                    + actor_1_facebook_likes + actor_2_facebook_likes + actor_3_facebook_likes 
+                    + director_facebook_likes + cast_total_facebook_likes
+                    + num_critic_for_reviews +  num_voted_users  + num_user_for_reviews
+                    + title_year
+                    , data = movies)
+summary(movies.lm.all_sig)$adj.r.squared
+```
+
+### Simple Model
+
+After using the two approaches above, our goal was to create a simplfied model with only a few explanatory variables which stil has a high Adjusted R-squared value. 
+
+For this we had to choose only one "Facebook" explanatory variable. It makes sense here to use a total value and not just a value for a single actor or director. Therefore we compared the factor: cast_total_facebook_likes with the factor: movie_facebook_likes.
+
+```{r , warning = FALSE}
+
+
+# Plot Cast FB Likes
+ggplot(data = movies,
+       mapping = aes(y = gross_m,
+                     x = cast_total_facebook_likes)) +
+  geom_point() + 
+  xlim(0, 15000) + 
+  ylim(0, 500) +
+  geom_smooth()  + 
+  ggtitle("cast_total_facebook_likes")
+```
+
+After graphical evaluation of the factor "cast_total_facebook_likes", it seems that there is no real linear relationship.
+
+```{r , warning = FALSE}
+# Plot Movie FB Likes
+ggplot(data = movies,
+      
+       mapping = aes(y = gross_m,
+                     x = movie_facebook_likes)) +
+  geom_point() + ## adds observations
+  xlim(0, 200000) + 
+  ylim(0, 500) +
+  geom_smooth( ) + # method = "lm"
+  ggtitle("movie_facebook_likes")
+
+```
+
+After graphical evaluation of the factor "movie_facebook_likes", it seems that there is is a linear relationship.
+
+
+We then fitted a LM using both Facebook factors and compared the two Adjusted R-squared values:
+
+```{r, echo = TRUE,  warning = FALSE}
+
+movies.lm.simp <- lm(gross_m ~ budget_m 
+                     + cast_total_facebook_likes
+                     + num_voted_users 
+                     , data = movies)
+summary(movies.lm.simp)$adj.r.squared
+
+movies.lm.simp <- lm(gross_m ~ budget_m 
+                        + movie_facebook_likes
+                        + num_voted_users 
+                        , data = movies)
+summary(movies.lm.simp)$adj.r.squared
+
+```
+
+Since the graphical evaluation for movie_facebook_likes seems to show some kind of a linear relationship and the adjusted Adjusted R-squared value of the model is slightly higher than using cast_total_facebook_likes, we use movie_facebook_likes as explanatory variable in the simple model.
+
+ 
+**Conclustion**
+
+In the all factor model, we used over 30 factors. With the simplified model, we were able to reduce the factors to just 3 explanatory variables. At the same time, the Adjusted R-squared value only fell from 62,6% to 57,8%.
+
+## GLM for Count Data
+
+Since Facebook likes are count data, we use the poisson model to test whether the imdb_score is a significant explanatory variable for movie_facebook_likes.
+
+```{r}
+
+
+glm.movie.count <- glm( movie_facebook_likes ~ imdb_score ,  # budget_m , gross_m
+                       data = movies, 
+                       family = "poisson" 
+                      )
+
+summary(glm.movie.count )
+
+```
+
+
+
+Comment: The  p-value for the explanatory variable imdb_score is highly significant.
+
+
+
+## GLM for Binomial Data
+
+In order to create a GLM Model with binomial Data, we created a list of Countries with the corresponding number of movies which generated a profit, the number of movies which generated a loss, the corresponding profit rate and the mean budget for a movie per country.
+
+```{r,  results = "hide" , message=FALSE, warning = FALSE, fig.show='hide'}
+# Prepare country list
+df_country_list <- data.frame(country_name=unique(movies$country, incomparables = FALSE), nr_profit_movies=0 , nr_loss_movies=0 , nr_total_movies=0 , profit_rate=0,  country_mean_budget_per_movie=0)
+df_country_list
+
+
+for(i in 1:nrow(df_country_list ) ) { 
+  tmp_country_name <- (df_country_list[i, "country_name"])
+  tmp_country <- filter(movies, country == tmp_country_name)
+  df_country_list[i, "nr_total_movies"] <-nrow(tmp_country)
+  df_country_list[i, "nr_profit_movies"] <- nrow(filter(tmp_country, profit_loss == "Profit"))
+  df_country_list[i, "nr_loss_movies"] <- nrow(filter(tmp_country, profit_loss == "Loss"))
+  df_country_list[i, "profit_rate"] <- (df_country_list[i, "nr_profit_movies"] / df_country_list[i, "nr_total_movies"])
+  
+  tmp_country_budget <- filter(tmp_country, budget > 0)
+  df_country_list[i, "country_mean_budget_per_movie"] <- (mean(tmp_country_budget[["budget"]]) / 1000000)
+  
+}
+
+
+counry_min20 <- filter(df_country_list, nr_total_movies > 20)
+
+```
+
+Countries with at least 20 Movies:
+
+```{r,  echo = TRUE}
+print(counry_min20)
+
+```
+
+Binomial GLM Model: We created this model to predict whether a movie will generate a profit or a loss based on the median budget per movie for its country of origin.
+
+```{r,  echo = TRUE}
+glm.country_profit <- glm(cbind(nr_profit_movies, nr_loss_movies) ~ country_mean_budget_per_movie,  
+                   family = "binomial",
+                   data = counry_min20)
+
+summary(glm.country_profit)
+```
+
+
+Visualisation: In the following visualitation you can see the results of the binomial GLM Model model. The actual observed values are the red dots and the black dots are the predictions for a sequence of mean budgets per movie. 
+
+```{r,  results = "hide" , message=FALSE, warning = FALSE}
+new.data = data.frame(country_mean_budget_per_movie = seq(0, 100, length.out = 110))
+new.data$pred.movie_profit <- predict(glm.country_profit, newdata = new.data,
+                                 type = "response")
+##
+ggplot(data = counry_min20,
+       mapping = aes(y = profit_rate,
+                     x = country_mean_budget_per_movie)) + 
+  ylim(0,1) +
+  geom_hline(yintercept = 0:1, col = "gray") +
+  ##
+  ## predictions for country_mean_budget_per_movie 0 --> 5
+  geom_point(data = new.data,
+             mapping = aes(
+               y = pred.movie_profit,
+               x = country_mean_budget_per_movie)) +
+  ##
+  ## actual observations
+  geom_point(col = "red", 
+             size = 3)
+```
+
+
+
+## GLM for Binary Data
+
+We created a binary GLM Model to predict, whether the movie generates a profit or a loss based on the imdb_score.
+
+```{r,  results = "hide" , message=FALSE, warning = FALSE, fig.show='hide'}
+
+movies$profit_loss10 <- 0
+for(i in 1:nrow(movies) ) {
+  tmp_profit_loss <- movies$profit_loss[i]
+  if(tmp_profit_loss == "Profit") {
+    movies$profit_loss10[i] <- 1
+  } else {
+    movies$profit_loss10[i] <- 0
+  }
+}
+
+
+
+```
+
+Binary GLM Model:
+```{r echo=TRUE}
+glm.movie_profit <- glm(profit_loss10 ~  imdb_score,
+                    family = "binomial",
+                    data = movies)
+summary(glm.movie_profit)
+
+```
+
+Visualisation of the Binary GLM Model:
+```{r r,  results = "hide" , message=FALSE, warning = FALSE}
+ggplot(data = movies,
+       mapping = aes(y = profit_loss10,
+                     x = imdb_score)) + 
+  geom_point() +
+  geom_smooth(method = "glm", 
+              se = FALSE,
+              method.args = list(family = "binomial")) 
+
+```
+
+## GAM
+
+We would like to test whether the Simple Model works better with a GAM.
+
+```{r}
+library(mgcv)
+gam.movies.1 <- gam(gross_m ~  s(budget_m) +
+                     s(movie_facebook_likes) + s(num_voted_users), 
+                   data = movies)
+summary(gam.movies.1)
+
+```
+
+```{r}
+plot(gam.movies.1, residuals = TRUE, cex = 2)
+```
+
+Comment: The Adjusted R-squared Value of the Model is 60.3% and has a slightly higher R-squared value then the Simple Linear Model from above (Adjusted  R-squared of 57,8%). 
+
+
+## LM with Polynomials
+
+Now we would like to test the simple model (gross_m ~ budget_m + movie_facebook_likes + num_voted_users) with Polynomials. For this we visually analyse the degree of the polynomial for each explanatory variable. 
+
+
+```{r}
+# budget_m
+gg.movies.poly.budget_m <- ggplot(data = movies,
+       mapping = aes(y = gross_m,
+                     x = budget_m)) + geom_point()
+gg.movies.poly.budget_m + 
+  geom_smooth(method = "lm", 
+              formula = y ~ poly(x, degree = 1))
+
+```
+
+Comment: Polynomials do not add additional value for the explanatory variable budget_m.
+
+
+```{r}
+# movie_facebook_likes
+gg.movies.poly.movie_facebook_likes <- ggplot(data = movies,
+       mapping = aes(y = gross_m,
+                     x = movie_facebook_likes)) + geom_point()
+gg.movies.poly.movie_facebook_likes + 
+  geom_smooth(method = "lm", 
+              formula = y ~ poly(x, degree = 1))
+
+```
+
+Comment: Polynomials do not add additional value for the explanatory variable movie_facebook_likes. 
+
+
+
+```{r}
+gg.movies.poly.num_voted_users <- ggplot(data = movies,
+       mapping = aes(y = gross_m,
+                     x = num_voted_users)) + geom_point()
+gg.movies.poly.num_voted_users + 
+  geom_smooth(method = "lm", 
+              formula = y ~ poly(x, degree = 3))
+```
+
+
+Comment: We use a degree = 3 polynomial for the explanatory variable num_voted_users. 
+
+
+```{r}
+ lm.movies.poly <- lm(gross_m ~   budget_m +
+                                
+                                  poly(num_voted_users, degree = 3),
+                             data = movies)
+summary(lm.movies.poly)
+```
+
+Comment: We removed the factor movie_facebook_likes from the model because the explanatory variable is now only marginally significant and contributes only marginally to the adjusted R-squared value. 
+
+* Adjusted R-squared including movie_facebook_likes:  0.5892 
+* Adjusted R-squared without movie_facebook_likes: 0.5886 
+
+
+## SVM
+
+For the support vector machine we don't need all columns, so create a dataset with the necessary columns. In this
+case we keep the columns profit_loss, imdb_score and movie_facebook_likes. Why have we used those variables. We used
+them in several linear models above. So we can then do a cross validation between the different methods.
+
+```{r}
+# keep only the necessary fields for the support vector machine
+movies_small <- movies %>%
+  dplyr::select(profit_loss, imdb_score, movie_facebook_likes)
+```
+
+### Create Training Dataset
+
+We create from the movie dataset the training dataset. We use around 85% from the original dataset.
+
+```{r echo = TRUE}
+# create the training set
+indices <- createDataPartition(movies_small$profit_loss, p = .85, list = F)
+train <- movies_small %>%
+  slice(indices)
+test_in <- movies_small %>%
+  slice(-indices) %>%
+  dplyr::select(-profit_loss)
+test_truth <- movies_small %>%
+  slice(-indices) %>%
+  pull(profit_loss)
+```
+
+### Execute the SVM
+
+We estimate the cost for the Support Vector Machine and execute it with the training set. Then we plot
+the results and the summary from the Support Vector Machine.
+
+```{r echo = TRUE}
+# execute the support vector machine and plot the result
+imdb_svm <- svm(profit_loss ~ ., train, kernel = "linear", scale = TRUE, cost = 10)
+plot(imdb_svm, train, imdb_score ~ movie_facebook_likes)
+summary(imdb_svm)
+```
+
+### Tune the cost
+Maybe we haven't used the best model and there are some potential. Therefore we us the tune to see if we have 
+the best model already or we have to change the cost.
+
+```{r echo = TRUE}
+tune.out <- tune(svm, profit_loss ~ . , data = train, kernel = "linear",
+                 ranges = list(cost = c(0.001, 0.01, 0.1, 1, 5, 10, 100)))
+(bestmod <- tune.out$best.model)
+```
+
+So we recalculate the SVM again with the new best model figured out with the tune method.
+
+```{r echo = TRUE}
+imdb_svm <- svm(profit_loss ~ ., train, kernel = "linear", scale = TRUE, cost = tune.out$best.model$cost)
+plot(imdb_svm, train, imdb_score ~ movie_facebook_likes)
+summary(imdb_svm)
+```
+
+### Test accuracy of the Support Vector Machine
+We try to predict how accurate the Support Vector Machine with this model is.
+
+```{r}
+test_pred <- predict(imdb_svm, test_in)
+table(test_pred)
+```
+
+With the confusion Matrix we can see how accurate the model and the prediction is.
+
+```{r}
+conf_matrix <- confusionMatrix(test_truth, test_pred)
+conf_matrix
+```
+So we have a resulting SVM with a prediction accuracy of around 57.5%.
+
+## Neural Network 
+
+We trained a neural network to classify, if a movie will be profitable or not. 
+
+As an input for our network we chose seven variables to predict the profit or loss: 
+
+* **Color**: whether the film was black and white or color
+* **Director Facebook Likes**: number of likes on the director's facebook page
+* **Actor 1 Facebook Likes**: number of likes on the director's facebook page
+* **Cast Total Facebook Likes**: the sum of facebook likes of the film cast members
+* **Number of User Reviews**: how many users reviewed the movie on IMDB
+* **IMDB Score**: the IMDB score of the movie
+* **Movie Facebook Likes**: number of likes of the movie on facebook
+
+**Why these variables?** 
+We chose the facebook likes and the number of reviews, as we wanted to see how strong is the influence of social media presence of the director, main actor, total cast and number of likes of  the movie. It can support the decision of film makers The IMDB score and number of reviews are not being considered as social media, however reflect mass opinion. 
+The color of the movie was included, as nowadays black and white movies are rarities and several black and white movies have good ratings. Thus we assume, it might increase the chance for profit if a black and white film will be produced with popular actors.
+
+The missing values have been already excluded from the dataset. 
+The numeric values are being normalized in order to bring all the numerical variables to the same range.
+```{r}
+# create the function to normalize the numeric data
+normalize <- function(x) {return((x - min(x)) / max(x) - min(x))}
+
+#assigning selected variables to movies_df1 data frame  
+movies_df1 <- movies[, c(1,5,8,14,19,26,28,31)]
+
+#normalizing numeric data
+movies_df2 <- movies_df1 %>%
+  mutate(director_facebook_likes = normalize(director_facebook_likes), 
+          actor_1_facebook_likes = normalize(actor_1_facebook_likes),
+         cast_total_facebook_likes = normalize(cast_total_facebook_likes),
+         movie_facebook_likes = normalize(movie_facebook_likes),
+         num_user_for_reviews = normalize(num_user_for_reviews),
+         imdb_score = normalize(imdb_score))
+```
+### Splitting the data
+The data is being split into training and test data to train the network and to test the performance. The ratio is 80% for training and 20% for testing.
+```{r echo = FALSE, results = 'hide', message=FALSE, warning=FALSE}
+set.seed(123)
+is_train <- runif(nrow(movies_df2)) < 0.8
+mean(is_train)
+```
+
+```{r}
+train <- movies_df2[is_train, ]
+test <- movies_df2[-is_train, ]
+```
+### Training the neural network
+We used the nnet algorithm to train our network to classify if a movie is generating profit or loss. We applied a simpler model, with 7 input variables and one output variable. 
+
+* **size**: number of units in the hidden layer. We chose the mean of the input and output neurons. 
+* **maxit**: maximum number of iterations. We kept the default 100.
+* **rang**: Initial random weights on [-rang, rang]. Value about 0.5 unless the inputs are large. 
+* **decay**: parameter for weight decay
+```{r echo = FALSE, results = 'hide', message=FALSE, warning=FALSE}
+#
+movies_net <- nnet(profit_loss ~ ., data = movies_df2, size=5, maxit=100, rang=0.5, decay=5e-4)
+```
+### Visualization of our neural network
+```{r}
+# Plotting our neural network
+plot(movies_net)
+```
+
+### Our neural network details
+```{r}
+movies_net
+```
+### Testing the performance 
+We are testing with the test data how the trained model performs.
+```{r}
+pred <- predict(movies_net, test, type="class")
+movies_nn <- table(pred=pred, true=test$profit_loss)
+
+```
+Let's see how our network classifies performs. Loss-Loss and Profit-Profit values show how many times were the movies correctly assessed by our network, Loss-Profit and Profit-Loss show how many times were the films incorrectly classified.
+```{r}
+movies_nn
+```
+### The accuracy of the network
+Accuracy is the number of correct predictions/ total number of predictions. The best score is 100%.   
+```{r}
+sum(diag(movies_nn))/sum(sum(movies_nn))
+```
+### Precision of the network
+Precision is a fraction of relevant instances among the retrieved instances. 
+```{r}
+movies_nn[1, 1]/(movies_nn[1, 1] + movies_nn[1, 2])
+```
+### The confusion matrix 
+The confusion matrix provides a summary of our model performance and accuracy. We do not go into detail now on the interpretation of the single values, it is only for an overview purpose.
+```{r}
+confusionMatrix(as.factor(test$profit_loss), as.factor(pred))
+```
+### Taking a look at the ROC Curve 
+The ROC curve (receiver operating characteristic curve) is a graph showing the performance of a classification model at all classification thresholds. This curve plots two parameters: True Positive Rate. False Positive Rate. The more the curve is closer to the top left corner, the better performs the model. 
+```{r}
+pred_raw <- predict(movies_net, test, decision.values=TRUE, type = "raw")
+pred <- ROCR::prediction(pred_raw, test$profit_loss)
+perf <- ROCR::performance(pred, "tpr", "fpr")
+plot(perf, lwd=2, col="blue")
+abline(a=0, b=1)
+```
+
+### 10-fold cross validation
+
+Cross validation is out-of sample method for statistical testing. 
+
+"This approach involves randomly dividing the set of observations into k groups, or folds, of approximately equal size. The first fold is treated as a validation set, and the method is fit on the remaining k − 1 folds."
+
+— Page 181, An Introduction to Statistical Learning, 2013.
+
+We performed the 10-fold cross validation with `caret` package.  
+
+```{r echo = FALSE, results = 'hide', message=FALSE, warning=FALSE}
+set.seed(123)
+tuGrid <- expand.grid(size = seq(from = 1, to = 5, by = 1), decay = seq(from = 0.1, to = 0.5, by = 0.1))
+
+trCtrl <- trainControl(
+  method = 'repeatedcv',
+  number = 10,
+  repeats = 5,
+  returnResamp = 'final'
+)
+
+models_movies <- train(profit_loss ~., data= movies_df2 ,
+  method = 'nnet', metric = 'Accuracy',
+  linear.output = FALSE,
+  tuneGrid = tuGrid,
+  trControl = trCtrl
+)
+```
+### Displaying the results of cross-validation
+
+**What do we see?**  
+Several combinations of the decay and size parameters have been tested through during the process to compare models with the different parameters. 
+
+size, decay and Accuracy have been mentioned already, but what is kappa? 
+"The kappa statistic adujsts accuracy by accounting for the possibility of a correct prediction by a chance alone. " 
+- Page 324, Machine Learning with R, 2019.
+
+Poor agreement is under 0.20, very good agreement is over 0.8. 
+```{r}
+models_movies
+```
+### Selecting our final model 
+The model below is different than our initial model. It has different parameter values, less accuracy and lower kappa value. Although it has slightly worse performance, than our initial model, we prefer this model for our prediction, as it has less complexity and already provides satisfactory results for our purpose. 
+For further analysis can aim to improve the accuracy and performance, by choosing other input variables with other parameters for the model.     
+```{r}
+models_movies$finalModel
+```
+
+# Agent-Based Models and Approximate Bayesian Computation
+## ABM
+Agent Based Models (ABM) are a useful method to simulate real life behavior. It is not required to know every detail of the real world. As long as long as certain behavior determine rules and states are known, it is possible to identify underlying patterns.
+
+Contrary to the previous parts, we focus on data regarding the spreading of a contagious illness / virus.
+
+
+### Observed Data
+ABM uses rules and stats to simulate a certain behavior.
+It is of advantage, if there are already existing real observations.
+In this case, an observation with four parameters is given:
+
+```{r observed_data}
+obs_data <- list(a = 3, b = 2, c = 1143, d = 1655)
+write.table(obs_data, file='obs_data.dat', row.names=FALSE)
+read.table(file="obs_data.dat",header=TRUE)
+```
+
+### Simulation Parameters
+As previously mentioned, simulations require a set of rules.
+The fallowing parameters are set before the simulation is run.
+
+Each combination of agent number and pub number is run one through the model, resulting in a total of 1220 simulations
+```{r abm_param, echo=TRUE}
+range_agents<- 40:100 #number of agents
+range_pubs <-1:20 # number of pubs (or homes. whatever) in the space named "world"
+gridSize_x<-15 # number of patches in the grid where moving agents move around
+gridSize_y<-15
+displacement_normal<-0.1 # speed of moving agents 
+displacement_pub<-0.01 # if in the pub, agents move slower and spend more time there
+simtime <- 225 #number of movement sequences
+```
+
+### Simulation Data
+```{r abm, eval=FALSE}
+# load necessary packages
+for (i in range_agents){
+  for (j in range_pubs){
+    number_agents <- i
+    number_pubs<-j
+    plot_data_out<-numeric() # initialize variable to store data to be plotted later on
+    
+    # world set up, this is about the static patches
+    w1 <- createWorld(minPxcor = 0, maxPxcor = gridSize_x-1, minPycor = 0, maxPycor = gridSize_y-1) # world defined by patches with coordinates Pxcor & Pycor
+    x_pub<-randomPxcor(w1,number_pubs) # random pub location on the world grid
+    y_pub<-randomPycor(w1,number_pubs)
+    w1 <- NLset(world = w1, agents = patches(w1), val = 0) # initialize all the patches to their internal state value = 0...
+    w1 <- NLset(world = w1, agents = patch(w1, x_pub, y_pub), val = 1) # ...except for the pubs with a value set to 1
+    
+    # agents set up, this is about the moving objects (traditionally named turtles)
+    t1 <- createTurtles(n = number_agents, coords = randomXYcor(w1, n = number_agents), breed="S", color="black") # all agents are set to the state (breed) S=susceptible, colored black
+    t1 <- NLset(turtles = t1, agents = turtle(t1, who = 0), var = "breed", val = "I") # agent 0 is set to I=infected (patient 0 that contaminates the others) 
+    t1 <- NLset(turtles = t1, agents = turtle(t1, who = 0), var = "color", val = "red") # ... and coloured red 
+    t1 <- turtlesOwn(turtles = t1, tVar = "displacement", tVal = displacement_normal) # all initially move with standard speed (normal displacement)
+    
+    #plot(w1, axes = 0, legend = FALSE, par(bty = 'n')) # initialize graphics by displaying world patches
+    #points(t1, col = of(agents = t1, var = "color"), pch = 20) # initialize graphics by displaying agents
+    
+    
+    ### 2. RUN THE SIMULATION TIME LOOP ###
+    
+    for (time in 1:simtime) { # start the simulation time loop
+      
+      t1 <- fd(turtles = t1, dist=t1$displacement, world = w1, torus = TRUE, out = FALSE) # each timestep move each agent forward with the fd() function, by a distance 
+      t1 <- right(turtles = t1, angle = sample(-20:20, 1, replace = F)) # each timestep agents can randomly turn 20 deg right of 20 left (-20)
+      
+      #plot(w1, axes = 0, legend = FALSE, par(bty = 'n')) # update graphics
+      #points(t1, col = of(agents = t1, var = "color"), pch = 20) # update graphics
+      
+      meet<-turtlesOn(world = w1, turtles = t1, agents = t1[of(agents = t1, var = "breed")=="I"]) # contact if multiple agents are on the same patch with function turtlesOn()
+      t1 <- NLset(turtles = t1, agents = meet, var = "breed", val = "I") # get the state of the infected agent
+      t1 <- NLset(turtles = t1, agents = meet, var = "color", val = "red") # and change its colour
+      
+      # agents that enter a pub spend more time there (have a lower displacement value)
+      pub <- turtlesOn(world = w1, turtles = t1, agents = patch(w1, x_pub, y_pub)) # check if agent is on a pub patch with function turtlesOn()
+      # # if enters the pub
+      t1 <- NLset(turtles = t1, agents = turtle(t1, who = pub$who), var = "displacement", val = displacement_pub)
+      # # if exits the pub
+      t1 <- NLset(turtles = t1, agents = turtle(t1, who = t1[-(pub$who+1)]$who), var = "displacement", val = displacement_normal)
+      
+      
+      Sys.sleep(0.1) # give some time to the computer to update all the thing graphically
+      
+      # store time-course data for plotting in the end
+      contaminated_counter<-sum(str_count(t1$color, "red"))
+      tmp_data<-c(time,contaminated_counter)
+      plot_data_out<-rbind(plot_data_out, tmp_data) # store in a matrix
+      
+    }
+    
+    
+    ### 3. PLOTTING AND FITTING SIMULATED DATA ###
+    
+    # perform non-linear curve fitting of the data 
+    df<-as.data.frame(plot_data_out)
+    names(df)<-c("time","contaminated_counter")
+    x  <- df$time
+    y  <- df$contaminated_counter
+    
+    # give initial guesses and fit with 4-parameters logistic equation (fits well S-shaped generic curves)
+    model <- nlsLM(y ~ d + (a-d) / (1 + (x/c)^b) ,start = obs_data, control = nls.control(maxiter = 100))
+    model
+    
+    # make a line with the fitting model that goes through the data
+    fit_x <- data.frame(x = seq(min(x),max(x),len = 100))
+    fit_y <- predict(model, newdata = fit_x)
+    fit_df <- as.data.frame(cbind(fit_x,fit_y))
+    names(fit_df)<-c("x","y")
+    fitted_function <- data.frame(x = seq(min(x),max(x),len = 100))
+    #lines(fitted_function$x,predict(model,fitted_function = fitted_function))
+    
+    # store summary statistics in a vector to be appended after each iteration to the output file
+    # # put in the filename all the parameters used to set the simulation run
+    simulation_run_name <- paste0("sim_",number_agents,"_",number_pubs)
+    varied_params <- c(number_agents,number_pubs)
+    summary_stat <- c( simulation_run_name, varied_params, as.vector(model$m$getPars()) )
+    # save summary statistics of all the performed simulations in file with:
+    # # Simulation ID
+    # # parameters used for that simulation
+    # # outcome of the curve (described by the fitting parameters)
+    write.table(as.data.frame(t(summary_stat)), "./summary_stat3.csv", sep = ",", col.names = FALSE, row.names=FALSE, append = TRUE) # append to pile up the different runs in a single file
+    
+  }
+}
+```
+
+
+
+
+## ABC
+This Approximate Bayesian Computation (ABC) uses the abc CRAN package. With assistance of the abc package, we are able to identify the simulation with the most similar patterns.
+
+In this model, the fallowing parameters are given:
+
+```{r abc_param,  echo=TRUE}
+abc_tolerance <- 0.001
+abc_transformation <- c('log')
+abc_method <-"neuralnet"
+```
+
+Since we are only interested in those simulation that closely resemble the observed data, the tolerance level is set to a rather low level (0.001). Hence, most simulations are rejected as their value deviate from the observed values.
+
+Csillery et al. (2015, 4) recommend to use neuralnet as the go to method when larger numbers of summary statistics are used. 
+
+```{r abc}
+
+summary_stat <- read.csv('summary_stat3.csv', header=FALSE)
+names(summary_stat)<-c("simulation_run_name","number_agents", "number_pubs",
+                       "a", "b", "c", "d")
+
+number_agents <- as.data.frame(summary_stat$number_agents)
+number_pubs <- as.data.frame(summary_stat$number_pubs)
+sim_param <- data.frame(number_agents = summary_stat$number_agents,
+                            number_pubs = summary_stat$number_pubs)
+
+sim_data <- data.frame(a = summary_stat$a,
+                        b = summary_stat$b,
+                        c = summary_stat$c,
+                        d = summary_stat$d)
+
+obs_data  <- read.table(file="obs_data.dat",header=TRUE)
+
+res <-  abc(target=obs_data,
+            param=sim_param,
+            sumstat=sim_data,
+            tol=abc_tolerance,
+            transf=abc_transformation,
+            method=abc_method)
+
+
+plot(res, param=sim_param)
+summary(res)
+
+write.table(res$adj.values,"out_abc.tsv", sep="\t", row.name=FALSE)
+
+```
+
+### Best Fit
+The number of agents and pubs identified through the model are not given as decimal numbers.
+
+In order to make a useful statement regarding the most likely initial real world situation leading to the observed data, the given numbers are rounded to the closest full number.
+
+Based on these parameters, we identify only to simulations that fit our observations:
+
+```{r}
+ad_values <- res$adj.values
+ad_values2 <- as.data.frame(round(res$adj.values,2))
+ad_values2["sim_run_name"] <- paste0("sim_",ad_values2$number_agents,"_",ad_values2$number_pubs)
+
+fit_values <- as.data.frame(round(res$adj.values),0)
+fit_values["sim_run_name"] <- paste0("sim_",fit_values$number_agents,"_",fit_values$number_pubs)
+
+ad_values2
+fit_values
+```
+
+### Next steps
+Based on these insights, we could rerun our ABM simulation with the given agent-pub-combination. The average of several of these runs could then again be used in the ABC model to clearly identify the best fitting simulation. While this does necessarily change the outcome, it could reveal that our initial simulation was caused by a rather unique situations (e.g. all the pubs close by each other in one corner).
+
+### Applicability to our research
+Due to the specifics of the ABM / ABC models, there is no direct applicability to our research question regarding the profitability of films.
+However, we could imagine a usefulness for ABM/ABC in terms of marketing campaigns. In particular, online marketing campaigns for movies on platforms such as facebook, reddit, and youtube might have some similarities to the spread of a virus.
+A "viral" marketing campaign could get people to recommend a title or movie through word-of-mouth and online posts. Modeling this is quite challenging, since not everyone talks about movies. Still, it seems promising to use these methods to simulate an online marketing campaign.
