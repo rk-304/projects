@@ -1,6 +1,6 @@
 # Data Science Projects
 
-The site is still under contstruction, until then here is an overview about my data science project during my studies. 
+This repo aims to provide an overview about my data science project during my studies. The code and/or report to the different projects you may find in the respective folders. The projects were done in mostly in Jupyter notebook or with R Markdown. 
 
 *Projects with R:*
 - Machine Learning with R – movie recommender using neural networks for binary movie classification
